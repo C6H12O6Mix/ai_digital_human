@@ -1,0 +1,338 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ------------------ 核心用户体系 ------------------
+model User {
+  id              String        @id @default(uuid())
+  username        String        @unique
+  password        String        // 加密存储
+  email           String?       @unique
+  phone           String?       @unique
+  avatar          String?       // 头像 URL
+  status          Int           @default(1) // 0-禁用,1-正常
+  registerTime    DateTime      @default(now())
+  lastLoginTime   DateTime?
+  lastLoginIp     String?
+
+  // 关联
+  userAssets      UserAsset[]       // 用户上传的素材
+  projects        Project[]         // 创建的项目
+  privateRoles    Role[]            // 用户的私有角色
+  conversations   Conversation[]    // 会话记录
+  knowledgeBases  KnowledgeBase[]   // 知识库
+  usageStatistics UsageStatistics[] // 使用统计
+  operationLogs   OperationLog[]    // 操作日志
+}
+
+// 用户素材库
+model UserAsset {
+  id          String    @id @default(uuid())
+  user        User      @relation(fields: [userId], references: [id])
+  userId      String
+  type        String    // image/video/audio
+  url         String    // 资源URL
+  name        String?
+  size        Int?      // 文件大小
+  format      String?   // 文件格式
+  createTime  DateTime  @default(now())
+}
+
+// ------------------- 项目管理 -------------------
+model Project {
+  id              String        @id @default(uuid())
+  name            String        // 项目名称
+  description     String?       // 项目描述
+  orientation     Int           @default(0) // 0-横版,1-竖版
+  status          Int           @default(1) // 0-禁用,1-正常
+
+  // 关联
+  creator         User          @relation(fields: [creatorId], references: [id])
+  creatorId       String        // 创建者
+  scene           Scene?        @relation(fields: [sceneId], references: [id])
+  sceneId         String?       // 关联场景
+  role            Role?         @relation(fields: [roleId], references: [id])
+  roleId          String?       // 关联角色
+  digitalHuman    DigitalHuman? @relation(fields: [digitalHumanId], references: [id])
+  digitalHumanId  String?       // 关联数字人
+  voiceLib        VoiceLibrary? @relation(fields: [voiceLibId], references: [id])
+  voiceLibId      String?       // 关联声音库
+
+  createTime      DateTime      @default(now())
+  updateTime      DateTime      @updatedAt
+  
+  // 反向关联
+  conversations   Conversation[] // 项目下的会话
+}
+
+// ------------------- 场景管理 -------------------
+model Scene {
+  id            String    @id @default(uuid())
+  name          String    
+  type          Int       @default(0) // 0-global,1-normal
+  background    String?   // 背景图片URL
+  
+  // 关联
+  knowledgeBase KnowledgeBase? @relation(fields: [kbId], references: [id])
+  kbId         String?        // 关联知识库
+  
+  // 反向关联
+  projects     Project[]      // 使用该场景的项目
+
+  // 组件配置
+  componentConfig String?         // 组件配置(JSON字符串)
+  
+  createTime   DateTime       @default(now())
+  updateTime   DateTime       @updatedAt
+}
+
+// ------------------- 数字人管理 ------------------
+model DigitalHuman {
+  id            String          @id @default(uuid())
+  name          String          // 数字人名称
+  description   String?         // 描述
+  
+  // 视频资源
+  talkingVideos String?          // 说话视频列表(JSON字符串)
+  staticVideos  String?          // 静态视频列表(JSON字符串)
+  
+  status        Int            @default(1) // 0-禁用,1-正常
+  createTime    DateTime       @default(now())
+  updateTime    DateTime       @updatedAt
+  
+  // 反向关联
+  projects      Project[]      // 关联项目
+}
+
+// ------------------- 声音库管理 ------------------
+model VoiceLibrary {
+  id          String    @id @default(uuid())
+  name        String    // 声音名称
+  description String?   // 描述
+  provider    String?   // 提供商
+  voiceId     String?   // 音色ID
+  gender      String?   // male/female
+  language    String?   // zh-CN/en-US
+  
+  // 配置
+  speed       Float?    @default(1.0)
+  pitch       Float?    @default(1.0)
+  
+  // 反向关联
+  projects    Project[] // 使用该声音的项目
+  
+  createTime  DateTime  @default(now())
+  updateTime  DateTime  @updatedAt
+}
+
+// ------------------- 知识库管理 -------------------
+model KnowledgeBase {
+  id            String    @id @default(uuid())
+  name          String
+  type          String    @default("qa") // qa/document
+  description   String?
+  
+  creator       User      @relation(fields: [creatorId], references: [id])
+  creatorId     String
+  
+  // 统计
+  documentCount Int       @default(0)
+  totalTokens   Int?      @default(0)
+  
+  // 文档
+  documents     KnowledgeDocument[]
+  
+  // 反向关联
+  scenes        Scene[]   // 使用该知识库的场景
+  roles         Role[]    // 使用该知识库的角色
+  
+  createTime    DateTime  @default(now())
+  updateTime    DateTime  @updatedAt
+}
+
+// ------------------- 角色管理 -------------------
+model Role {
+  id            String    @id @default(uuid())
+  name          String    // 角色名称
+  description   String?   // 角色描述
+  isPublic      Boolean   @default(false) // false-私有角色,true-公有角色
+  
+  // 关联
+  creator       User?     @relation(fields: [creatorId], references: [id])
+  creatorId     String?   // 创建者(私有角色才有)
+  
+  // 配置
+  modelSettings     ModelSettings?
+  kbSettings        KnowledgeBaseSettings?
+  speechSettings    SpeechSettings?
+  toolConfigs       ToolConfig[]    // 修改为多对多关系
+  
+  // 反向关联
+  projects          Project[]
+  knowledgeBase     KnowledgeBase?  @relation(fields: [kbId], references: [id])
+  kbId             String?
+  
+  createTime    DateTime  @default(now())
+  updateTime    DateTime  @updatedAt
+}
+
+// ------------------- 工具配置管理 -------------------
+model ToolConfig {
+  id          String    @id @default(uuid())
+  name        String    // 工具名称
+  description String?   // 工具描述
+  jsonSchema  String    // 工具的JSON Schema描述(JSON字符串)
+  status      Int       @default(1) // 0-禁用,1-正常
+  
+  // 关联
+  roles       Role[]    // 使用该工具配置的角色
+  
+  createTime  DateTime  @default(now())
+  updateTime  DateTime  @updatedAt
+}
+
+// ------------------- 模型配置 -------------------
+model ModelSettings {
+  id            String    @id @default(uuid())
+  modelName     String    // 模型名称
+  provider      String?   // 提供商
+  apiKey        String?   // API密钥
+  temperature   Float?    @default(0.7)
+  maxTokens     Int?      @default(2000)
+  config        String?   // 其他配置项(JSON字符串)
+  
+  // 关联
+  role          Role      @relation(fields: [roleId], references: [id])
+  roleId        String    @unique // 一对一关系
+  
+  createTime    DateTime  @default(now())
+  updateTime    DateTime  @updatedAt
+}
+
+// ------------------- 知识库配置 -------------------
+model KnowledgeBaseSettings {
+  id            String    @id @default(uuid())
+  similarity    Float?    @default(0.7) // 相似度阈值
+  maxResults    Int?      @default(5)   // 最大结果数
+  config        String?   // 其他配置项(JSON字符串)
+  
+  // 关联
+  role          Role      @relation(fields: [roleId], references: [id])
+  roleId        String    @unique // 一对一关系
+  
+  createTime    DateTime  @default(now())
+  updateTime    DateTime  @updatedAt
+}
+
+// ------------------- 语音配置 -------------------
+model SpeechSettings {
+  id          String    @id @default(uuid())
+  provider    String?   // 提供商
+  apiKey      String?   // API密钥
+  language    String?   @default("zh-CN")
+  voice       String?   // 语音名称
+  speed       Float?    @default(1.0)
+  pitch       Float?    @default(1.0)
+  config      String?   // 其他配置项(JSON字符串)
+  
+  // 关联
+  role        Role      @relation(fields: [roleId], references: [id])
+  roleId      String    @unique // 一对一关系
+  
+  createTime  DateTime  @default(now())
+  updateTime  DateTime  @updatedAt
+}
+
+// ------------------- 知识库文档 -------------------
+model KnowledgeDocument {
+  id            String        @id @default(uuid())
+  title         String        // 文档标题
+  content       String?       // 文档内容
+  source        String?       // 来源
+  url           String?       // 文档URL
+  type          String        @default("text") // text/pdf/word/html/csv
+  status        Int           @default(1) // 0-处理中,1-正常,2-处理失败
+  
+  // 关联
+  knowledgeBase KnowledgeBase @relation(fields: [kbId], references: [id])
+  kbId          String
+  
+  // 统计
+  tokenCount    Int?          @default(0)
+  chunkCount    Int?          @default(0)
+  
+  createTime    DateTime      @default(now())
+  updateTime    DateTime      @updatedAt
+}
+
+// ------------------- 对话记录 -------------------
+model Conversation {
+  id          String        @id @default(uuid())
+  title       String?       // 会话标题
+  
+  // 关联
+  user        User          @relation(fields: [userId], references: [id])
+  userId      String
+  project     Project       @relation(fields: [projectId], references: [id])
+  projectId   String
+  
+  // 消息记录
+  messages    Message[]     // 消息记录
+  
+  createTime  DateTime      @default(now())
+  updateTime  DateTime      @updatedAt
+}
+
+// ------------------- 消息记录 -------------------
+model Message {
+  id              String        @id @default(uuid())
+  role            String        // user/assistant
+  content         String        // 消息内容
+  
+  // 关联
+  conversation    Conversation  @relation(fields: [conversationId], references: [id])
+  conversationId  String
+  
+  createTime      DateTime      @default(now())
+}
+
+// ------------------- 使用统计 -------------------
+model UsageStatistics {
+  id            String    @id @default(uuid())
+  user          User      @relation(fields: [userId], references: [id])
+  userId        String
+  
+  date          DateTime  // 统计日期
+  requestCount  Int       @default(0) // 请求总数
+  tokenCount    Int       @default(0) // 消耗的token总数
+  
+  // 详细统计
+  modelUsage    String?   // 各模型使用情况(JSON字符串)
+  apiUsage      String?   // 各API使用情况(JSON字符串)
+  
+  createTime    DateTime  @default(now())
+  updateTime    DateTime  @updatedAt
+}
+
+// ------------------- 操作日志 -------------------
+model OperationLog {
+  id          String    @id @default(uuid())
+  user        User      @relation(fields: [userId], references: [id])
+  userId      String
+  
+  action      String    // 操作类型
+  resource    String    // 资源类型
+  resourceId  String?   // 资源ID
+  detail      String?   // 详细信息(JSON字符串)
+  ip          String?   // 操作IP
+  
+  createTime  DateTime  @default(now())
+}
